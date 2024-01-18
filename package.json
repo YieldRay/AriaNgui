@@ -1,0 +1,12 @@
+{
+    "private":true,
+    "scripts": {
+        "dev": "serve -l 5173 dist",
+        "update": "bash update-AriaNg.sh && bash update-aria2c.sh",
+        "build": "echo run `npm run update` to update AriaNg and aria2c",
+        "tauri": "tauri"
+    },
+    "devDependencies": {
+        "@tauri-apps/cli": "^1.5.9"
+    }
+}
