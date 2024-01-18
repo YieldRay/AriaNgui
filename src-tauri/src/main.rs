@@ -5,7 +5,7 @@ use std::fmt::Debug;
 use std::sync::mpsc::sync_channel;
 use std::thread;
 
-use tauri::api::process::Command;
+use tauri::api::process::{Command, CommandEvent};
 use tauri::Manager;
 use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem};
 
@@ -15,20 +15,30 @@ use tauri::{utils::config::AppUrl, WindowUrl};
 use winapi::um::winuser::{MessageBoxA, MB_ICONINFORMATION, MB_OK};
 
 fn main() {
-    let (mut _rx, child) = unwrap_or_exit_with_message_box(
+    let (mut crx, child) = unwrap_or_exit_with_message_box(
         // https://github.com/tauri-apps/tauri/discussions/3273
         Command::new("aria2c")
             .args([
                 "--enable-rpc=true",
                 "--rpc-allow-origin-all=true",
                 "--rpc-listen-all=true",
-                "--rpc-listen-all=true",
                 "--rpc-listen-port=6800",
             ])
             .spawn(),
-        "Please put aria2c.exe to PATH!",
+        "Cannot find aria2c.exe",
     );
-    let (tx, rx) = sync_channel::<i32>(1);
+
+    thread::spawn(move || {
+        while let Some(event) = crx.blocking_recv() {
+            if let CommandEvent::Stdout(line) = event {
+                if line.trim().len() > 0 {
+                    println!("{}", line);
+                }
+            }
+        }
+    });
+
+    let (tx, rx) = sync_channel::<i32>(0);
     thread::spawn(
         // this thread waiting for close signal
         move || loop {
@@ -60,18 +70,19 @@ fn main() {
             .on_system_tray_event(move |app, event| {
                 if let SystemTrayEvent::MenuItemClick { id, .. } = event {
                     match id.as_str() {
-                        "quit" => {
-                            // send signal to exit the app
-                            tx.send(-1).unwrap();
+                        "show" => {
+                            if let Some(window) = app.get_window("main") {
+                                window.show().unwrap();
+                            }
                         }
                         "hide" => {
                             if let Some(window) = app.get_window("main") {
-                                if window.is_visible().unwrap_or(false) {
-                                    window.hide().unwrap();
-                                } else {
-                                    window.show().unwrap();
-                                }
+                                window.hide().unwrap();
                             }
+                        }
+                        "quit" => {
+                            // send signal to exit the app
+                            tx.send(-1).unwrap();
                         }
                         _ => {}
                     }
@@ -83,8 +94,8 @@ fn main() {
             })
             .on_window_event(|event| match event.event() {
                 tauri::WindowEvent::CloseRequested { api, .. } => {
-                    event.window().hide().unwrap();
                     api.prevent_close();
+                    event.window().hide().unwrap();
                 }
                 _ => {}
             })
@@ -95,6 +106,7 @@ fn main() {
 
 /// note that: the `!` type is experimental
 /// so we can hardly customize exit behavior
+#[allow(dead_code)]
 fn unwrap_or_exit<T, E, OnErr>(result: Result<T, E>, on_err: OnErr) -> T
 where
     OnErr: Fn(E) -> (),
